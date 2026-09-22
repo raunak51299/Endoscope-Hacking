@@ -2,6 +2,7 @@ package com.endoscopehacking.viewer.ui
 
 import android.app.Application
 import android.graphics.Bitmap
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.endoscopehacking.viewer.media.PhotoSaver
@@ -13,6 +14,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 enum class ViewerMode { OTOSCOPE, DENTAL }
@@ -24,6 +27,7 @@ data class UiState(
     val batteryPercent: Int? = null,
     val deviceInfo: Map<String, Any?> = emptyMap(),
     val isRecording: Boolean = false,
+    val recordingDurationMs: Long = 0L,
     val message: String? = null,
 )
 
@@ -31,6 +35,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private val videoClient = VideoClient()
     private val controlClient = ControlClient()
     private val videoRecorder = VideoRecorder()
+    private var recordingTimerJob: Job? = null
+    private var recordingStartedAtMs = 0L
 
     val bitmap: StateFlow<Bitmap?> = videoClient.bitmap
 
@@ -82,12 +88,44 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         if (videoRecorder.isRecording) {
             viewModelScope.launch {
                 val ok = videoRecorder.stop(getApplication())
-                _uiState.update { it.copy(isRecording = false, message = if (ok) "Video saved" else "Video save failed") }
+                stopRecordingTimer()
+                _uiState.update {
+                    it.copy(
+                        isRecording = false,
+                        recordingDurationMs = 0L,
+                        message = if (ok) "Video saved" else "Video save failed",
+                    )
+                }
             }
         } else {
             val started = videoRecorder.start(getApplication())
-            _uiState.update { it.copy(isRecording = started, message = if (started) null else "Could not start recording") }
+            if (started) startRecordingTimer()
+            _uiState.update {
+                it.copy(
+                    isRecording = started,
+                    recordingDurationMs = if (started) 0L else it.recordingDurationMs,
+                    message = if (started) null else "Could not start recording",
+                )
+            }
         }
+    }
+
+    private fun startRecordingTimer() {
+        recordingTimerJob?.cancel()
+        recordingStartedAtMs = SystemClock.elapsedRealtime()
+        recordingTimerJob = viewModelScope.launch {
+            while (true) {
+                _uiState.update {
+                    it.copy(recordingDurationMs = SystemClock.elapsedRealtime() - recordingStartedAtMs)
+                }
+                delay(1_000L)
+            }
+        }
+    }
+
+    private fun stopRecordingTimer() {
+        recordingTimerJob?.cancel()
+        recordingTimerJob = null
     }
 
     /** Feeds the currently displayed (already rotated) frame into an active recording. */
@@ -111,6 +149,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         super.onCleared()
+        stopRecordingTimer()
         videoClient.stop()
         if (videoRecorder.isRecording) videoRecorder.stop(getApplication())
     }

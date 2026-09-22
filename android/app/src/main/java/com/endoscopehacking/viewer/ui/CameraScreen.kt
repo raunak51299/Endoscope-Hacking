@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.endoscopehacking.viewer.net.VideoState
@@ -71,12 +72,17 @@ fun CameraScreen(viewModel: CameraViewModel) {
                 val shapeModifier = if (uiState.mode == ViewerMode.OTOSCOPE) {
                     Modifier.size(320.dp).clip(CircleShape)
                 } else {
-                    Modifier.fillMaxWidth()
+                    Modifier.fillMaxSize()
                 }
                 Image(
                     bitmap = frame.asImageBitmap(),
                     contentDescription = "Endoscope live view",
                     modifier = shapeModifier.graphicsLayer(rotationZ = rotation),
+                    contentScale = if (uiState.mode == ViewerMode.OTOSCOPE) {
+                        ContentScale.Crop
+                    } else {
+                        ContentScale.Crop
+                    },
                 )
             }
         }
@@ -87,6 +93,7 @@ fun CameraScreen(viewModel: CameraViewModel) {
 
         CaptureRow(
             isRecording = uiState.isRecording,
+            recordingDurationMs = uiState.recordingDurationMs,
             onPhoto = viewModel::takePhoto,
             onToggleRecord = viewModel::toggleRecording,
         )
@@ -136,13 +143,32 @@ private fun modeColors(selected: Boolean) = if (selected) {
 }
 
 @Composable
-private fun CaptureRow(isRecording: Boolean, onPhoto: () -> Unit, onToggleRecord: () -> Unit) {
+private fun CaptureRow(
+    isRecording: Boolean,
+    recordingDurationMs: Long,
+    onPhoto: () -> Unit,
+    onToggleRecord: () -> Unit,
+) {
     Box(
         modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
-        CaptureButtons(onPhoto, isRecording, onToggleRecord)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            if (isRecording) {
+                Text(
+                    text = "Recording ${formatDuration(recordingDurationMs)}",
+                    color = Color(0xFFFF8A80),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            CaptureButtons(onPhoto, isRecording, onToggleRecord)
+        }
     }
+}
+
+private fun formatDuration(durationMs: Long): String {
+    val totalSeconds = durationMs / 1_000L
+    return "%02d:%02d".format(totalSeconds / 60L, totalSeconds % 60L)
 }
 
 @Composable
