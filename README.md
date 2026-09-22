@@ -10,6 +10,11 @@ The relay provides robust video reassembly, camera-sourced orientation
 stabilization, browser capture controls, battery status, and safe device
 metadata without requiring third-party Python packages.
 
+An `android/` Kotlin + Jetpack Compose app is also included: it talks to the
+camera's UDP protocols directly (no relay/browser needed) and reproduces the
+same stabilization, capture, and status features as a standalone native
+client. See [Native Android app](#native-android-app) below.
+
 ## Usage
 
 ```
@@ -54,6 +59,52 @@ The local HTTP API is intentionally small:
 | `/api/orientation` | Current camera-derived rotation angle |
 | `/api/status` | Read-only battery estimate |
 | `/api/device` | Whitelisted, non-sensitive device metadata |
+
+## Native Android app
+
+`android/` is a standalone Kotlin + Jetpack Compose app (no Python relay, no
+browser) that talks to the camera's two UDP protocols directly from the phone,
+so you don't have to rely on the vendor's iTiMO app. It is a from-scratch
+implementation based on the same reverse-engineering findings documented in
+this README, ported line-for-line where practical from `camera.py`.
+
+**Features:**
+
+- Live view over WiFi (`FrameAssembler`/`Accelerometer` ports of the Python
+  relay's fragment reassembly and angle decoding).
+- **Otoscope mode**: circular, camera-stabilized view, rotated live using the
+  same accelerometer-sample decoding and deadband/retention rules as the
+  relay and the vendor app.
+- **Dental mirror mode**: raw, unrotated full-frame view.
+- **Take photo**: saves the current (correctly rotated) frame as a JPEG to
+  the device's `Pictures/EndoscopeViewer` collection.
+- **Start/stop recording**: encodes the live, stabilized frames to an H.264
+  MP4 with `MediaCodec`/`MediaMuxer` and saves it to
+  `Movies/EndoscopeViewer`.
+- Battery estimate and safe device metadata via the same UDP/50000 queries
+  the relay uses (`ControlClient`, a Kotlin port of `CameraController`).
+
+**Project layout:** `android/app/src/main/java/com/endoscopehacking/viewer/`
+
+- `net/` - `Protocol.kt` (wire constants), `Accelerometer.kt` (angle
+  decoding), `FrameAssembler.kt` (fragment reassembly), `VideoClient.kt`
+  (UDP socket + heartbeat + bitmap decode), `ControlClient.kt` (battery/
+  device-info queries).
+- `media/` - `PhotoSaver.kt`, `VideoRecorder.kt`.
+- `ui/` - `CameraViewModel.kt`, `CameraScreen.kt` (Compose UI).
+
+**Building:** open the `android/` folder in Android Studio (Giraffe or
+newer) and let it sync; it will fetch the Gradle wrapper JAR and Android SDK
+components automatically. To build from the command line instead, generate
+the wrapper once with a local Gradle install (`gradle wrapper --gradle-version
+8.7`) and then run `./gradlew assembleDebug`. Requires JDK 17 and Android SDK
+34; `minSdk` is 24 (Android 7.0).
+
+**Known limitations:** same as the relay - no LED/brightness control (not
+enough protocol evidence), and battery percentage uses the vendor's own
+voltage-to-percentage heuristic rather than a calibrated fuel gauge. On
+Android 7-8 (API 24-28) the app requests the legacy `WRITE_EXTERNAL_STORAGE`
+permission once, since scoped storage is not yet available on those versions.
 
 ## App behavior reproduced locally
 
